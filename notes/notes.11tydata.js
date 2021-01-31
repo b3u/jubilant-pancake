@@ -1,51 +1,52 @@
 const {titleCase} = require("title-case");
-const path = require("path");
+
+// This regex finds all wikilinks in a string
+const wikilinkRegExp = /\[\[\s?([^\[\]\|\n\r]+)(\|[^\[\]\|\n\r]+)?\s?\]\]/g
+
+function caselessCompare(a, b) {
+    return a.toLowerCase() === b.toLowerCase();
+}
 
 module.exports = {
     layout: "note.html",
     type: "note",
     eleventyComputed: {
-        title: data => titleCase(data.page.fileSlug),
+        title: data => titleCase(data.title || data.page.fileSlug),
         backlinks: (data) => {
             const notes = data.collections.notes;
             const currentFileSlug = data.page.fileSlug;
 
-            const stripYaml = (content) => {
-                if(content.startsWith("---")) {
-                    return content.substr(content.indexOf("---", 3) + 3);
-                } else {
-                    return content;
+            let backlinks = [];
+
+            // Search the other notes for backlinks
+            for(const otherNote of notes) {
+                const noteContent = otherNote.template.frontMatter.content;
+
+                // Get all links from otherNote
+                const outboundLinks = (noteContent.match(wikilinkRegExp) || [])
+                    .map(link => (
+                        // Extract link location
+                        link.slice(2,-2)
+                            .split("|")[0]
+                            .replace(/.(md|markdown)\s?$/i, "")
+                            .trim()
+                    ));
+
+                // If the other note links here, return related info
+                if(outboundLinks.some(link => caselessCompare(link, currentFileSlug))) {
+
+                    // Construct preview for hovercards
+                    let preview = noteContent.slice(0, 240);
+
+                    backlinks.push({
+                        url: otherNote.url,
+                        title: otherNote.data.title,
+                        preview
+                    })
                 }
             }
 
-            // Search each note for backlinks
-            return notes.filter(n => {
-                // Only fetch backlinks
-                const noteContent = stripYaml(n.template.inputContent);
-
-                // This regex finds all wikilinks in the note
-                const linksInNote = (noteContent.match(
-                    /\[\[([\w\s/-]+)(\|([\w\s/]+))?\]\]/g
-                ) || [])
-                .map(m => (
-                    // Extract link location
-                    m.slice(2,-2).split("|")[0]
-                        .toLowerCase()
-                        .replace(/[^\w\s-]+/g,'')
-                        .replace(/\s+/g,'-')
-                ));
-
-                return linksInNote.includes(currentFileSlug);
-            }).map(n => {
-                // Construct return object
-                const noteContent = stripYaml(n.template.inputContent);
-                
-                return {
-                    url: n.url,
-                    title: n.data.title || titleCase(path.basename(n.filePathStem)),
-                    preview: noteContent
-                }
-            })
+            return backlinks;
         }
     }
 }
